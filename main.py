@@ -5,7 +5,8 @@ import time
 import warnings
 from collections import deque
 
-# Import các module xử lý
+# Import các module xử lý của dự án
+# Đảm bảo cấu trúc folder đúng như bạn đã upload
 from utils.feature_extraction import extract_features
 from utils.strings import ExpressionHandler
 from utils.tts import TextToSpeech
@@ -39,6 +40,10 @@ st.markdown("""
         div.stImage {
             text-align: center;
         }
+        /* Làm đẹp thanh progress bar */
+        .stProgress > div > div > div > div {
+            background-color: #2a9d8f;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -48,14 +53,16 @@ st.markdown("""
 @st.cache_resource
 def load_ai_model():
     """Load model một lần duy nhất để tránh lag khi reload"""
-    print("Loading model...")
+    print(f"Đang tải model từ: models/{MODEL_NAME}...")
     return ASLClassificationModel.load_model(f"models/{MODEL_NAME}")
 
 # Load model ngay khi vào app
 try:
     model = load_ai_model()
+    st.sidebar.success(f"✅ Đã tải model: {MODEL_NAME}")
 except Exception as e:
-    st.error(f"Lỗi không tìm thấy model: {e}")
+    st.error(f"❌ Lỗi nghiêm trọng: Không tìm thấy model tại 'models/{MODEL_NAME}'")
+    st.error(f"Chi tiết lỗi: {e}")
     st.stop()
 
 # ==========================================
@@ -64,47 +71,47 @@ except Exception as e:
 st.sidebar.title("🔧 Bảng Điều Khiển")
 
 # NÚT QUAN TRỌNG: BẬT/TẮT CAMERA
-# Checkbox này đóng vai trò như công tắc nguồn
 run_camera = st.sidebar.checkbox("📷 Bật Camera", value=True)
 
 # Cấu hình độ nhạy AI
 st.sidebar.markdown("---")
-st.sidebar.subheader("Độ nhạy AI (Threshold)")
-detection_confidence = st.sidebar.slider("Min Detection Confidence", 0.0, 1.0, MODEL_CONFIDENCE, 0.05)
-tracking_confidence = st.sidebar.slider("Min Tracking Confidence", 0.0, 1.0, MODEL_CONFIDENCE, 0.05)
+st.sidebar.subheader("🎛️ Độ nhạy AI")
+detection_confidence = st.sidebar.slider("Độ nhạy phát hiện (Detection)", 0.0, 1.0, 0.7, 0.05, help="Tăng lên nếu máy nhận diện nhầm nhiễu nền là tay")
+tracking_confidence = st.sidebar.slider("Độ nhạy theo dõi (Tracking)", 0.0, 1.0, MODEL_CONFIDENCE, 0.05)
+current_threshold = st.sidebar.slider("Ngưỡng chốt đáp án (Threshold)", 0.0, 1.0, CONFIDENCE_THRESHOLD, 0.05, help="Chỉ hiển thị kết quả khi độ tin cậy vượt qua mức này")
 
 # Cấu hình TTS (Giọng nói)
 st.sidebar.markdown("---")
 st.sidebar.subheader("🔊 Cấu hình Giọng nói")
-tts_enabled = st.sidebar.checkbox("Bật đọc kết quả", value=False)
-tts_engine_choice = st.sidebar.selectbox("Công cụ đọc", ["pyttsx3 (Offline)", "gTTS (Vietnamese, Online)"], index=0)
-min_interval = st.sidebar.slider("Khoảng cách giữa các lần đọc (s)", 1.0, 5.0, 2.0, 0.5)
+tts_enabled = st.sidebar.checkbox("Bật đọc kết quả", value=True)
+tts_engine_choice = st.sidebar.selectbox("Công cụ đọc", ["gTTS (Google - Online, Tiếng Việt hay)", "pyttsx3 (Offline - Nhanh)"], index=0)
+min_interval = st.sidebar.slider("Khoảng cách giữa các lần đọc (giây)", 1.0, 5.0, 2.5, 0.5)
 
 # Xử lý TTS Voice ID (nếu dùng pyttsx3)
 tts_voice = None
 if "pyttsx3" in tts_engine_choice:
-    tts_voice = st.sidebar.text_input("Voice ID (pyttsx3 - Optional)", value="") or None
+    tts_voice = st.sidebar.text_input("Voice ID (pyttsx3 - Tùy chọn)", value="") or None
 
-# Khởi tạo TTS Session
+# --- Logic Khởi tạo/Huỷ TTS Session ---
 if 'tts' not in st.session_state:
     st.session_state.tts = None
     st.session_state.tts_engine = None
 
 desired_engine = 'pyttsx3' if 'pyttsx3' in tts_engine_choice else 'gtts'
 
-# Logic khởi tạo/huỷ TTS
+# Nếu bật TTS nhưng chưa có object hoặc đổi engine -> Tạo mới
 if tts_enabled:
-    # Nếu chưa có TTS hoặc đổi engine thì khởi tạo lại
     if st.session_state.tts is None or st.session_state.tts_engine != desired_engine:
         try:
             with st.spinner("Đang khởi tạo giọng nói..."):
+                # Lưu ý: lang='vi' quan trọng cho gTTS
                 st.session_state.tts = TextToSpeech(engine=desired_engine, lang='vi', voice=tts_voice)
                 st.session_state.tts_engine = desired_engine
         except Exception as e:
-            st.sidebar.error(f"Lỗi TTS: {e}")
+            st.sidebar.error(f"Lỗi khởi tạo TTS: {e}")
             tts_enabled = False
+# Nếu tắt TTS mà đang có object -> Hủy
 elif not tts_enabled and st.session_state.tts is not None:
-    # Tắt TTS nếu người dùng bỏ chọn
     try:
         st.session_state.tts.stop()
     except:
@@ -114,6 +121,8 @@ elif not tts_enabled and st.session_state.tts is not None:
 # ==========================================
 # 4. GIAO DIỆN CHÍNH
 # ==========================================
+st.title("🤟 Nhận Diện Ngôn Ngữ Ký Hiệu Việt Nam")
+
 col1, col2 = st.columns([3, 2])
 
 with col1:
@@ -131,9 +140,10 @@ with col2:
     st.markdown("#### Lịch sử")
     history_placeholder = st.empty()
 
-    # Khu vực hiển thị FPS và thông số
+    # Khu vực hiển thị FPS
     st.markdown("---")
     fps_display = st.empty()
+    status_text = st.empty()
 
 # ==========================================
 # 5. LOGIC XỬ LÝ CAMERA (LOOP)
@@ -146,17 +156,20 @@ if run_camera:
     mp_drawing = mp.solutions.drawing_utils
     mp_drawing_styles = mp.solutions.drawing_styles
 
-    # Mở Camera
+    # Mở Camera (Thử index 0, nếu lỗi thử 1)
     cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        st.error("Không thể mở Camera. Vui lòng kiểm tra kết nối.")
+        st.stop()
     
     expression_handler = ExpressionHandler()
+    # Sử dụng window size từ config hoặc hardcode nhỏ hơn nếu muốn nhanh hơn
     smoother = PredictionSmoother(window_size=SMOOTHING_WINDOW_SIZE)
-    prev_time = 0 # Dùng để tính FPS
     
-    # History buffer
+    prev_time = 0
     prediction_history = deque(maxlen=5)
 
-    # Sử dụng 'with' để tự động giải phóng tài nguyên Mediapipe khi tắt loop
+    # Context Manager cho Mediapipe giúp quản lý tài nguyên tốt hơn
     with mp_face_mesh.FaceMesh(
             max_num_faces=1,
             refine_landmarks=True,
@@ -170,16 +183,16 @@ if run_camera:
         while cap.isOpened() and run_camera:
             success, image = cap.read()
             if not success:
-                st.warning("Không tìm thấy camera hoặc camera đang bận.")
+                st.warning("Mất tín hiệu camera.")
                 break
 
-            # Tính toán FPS
+            # Tính FPS
             curr_time = time.time()
-            fps = 1 / (curr_time - prev_time)
+            fps = 1 / (curr_time - prev_time) if (curr_time - prev_time) > 0 else 0
             prev_time = curr_time
-            fps_display.metric("FPS Tốc độ xử lý", f"{int(fps)}")
+            fps_display.metric("FPS (Tốc độ)", f"{int(fps)}")
 
-            # Xử lý hình ảnh
+            # Chuẩn bị ảnh cho Mediapipe (BGR -> RGB)
             image.flags.writeable = False
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
@@ -187,8 +200,11 @@ if run_camera:
             face_results = face_mesh.process(image)
             hand_results = hands.process(image)
 
-            # 2. Vẽ lên hình
+            # 2. Vẽ lại lên ảnh (RGB -> BGR để hiển thị opencv nếu cần, nhưng streamlit dùng RGB cũng được)
+            # Tuy nhiên Mediapipe vẽ đẹp hơn trên BGR gốc rồi convert lại sau, 
+            # ở đây ta vẽ trực tiếp lên ảnh RGB hiện tại để hiển thị luôn
             image.flags.writeable = True
+            
             # Vẽ Face
             if face_results.multi_face_landmarks:
                 for face_landmarks in face_results.multi_face_landmarks:
@@ -199,6 +215,7 @@ if run_camera:
                         landmark_drawing_spec=None,
                         connection_drawing_spec=mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=1, circle_radius=1)
                     )
+            
             # Vẽ Hands
             if hand_results.multi_hand_landmarks:
                 for hand_landmarks in hand_results.multi_hand_landmarks:
@@ -210,60 +227,80 @@ if run_camera:
                         connection_drawing_spec=mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2)
                     )
 
-            # 3. Dự đoán cử chỉ
-            try:
-                # Trích xuất đặc trưng (Dùng hàm mới nhất của bạn)
-                feature = extract_features(mp_hands, face_results, hand_results)
-                
-                # Đưa vào model
-                # expression = model.predict(feature) # Cũ
-                label, confidence = model.predict_with_confidence(feature)
-                
-                # Thêm vào bộ làm mượt
-                smoother.add_prediction(label, confidence)
-                smoothed_label, smoothed_confidence = smoother.get_smoothed_prediction()
-
-                # Logic hiển thị
-                ui_text = "..."
-                if smoothed_confidence >= CONFIDENCE_THRESHOLD:
-                    expression_handler.receive(smoothed_label)
-                    ui_text = expression_handler.get_message()
+            # ============================================================
+            # 3. DỰ ĐOÁN CỬ CHỈ (ĐÃ SỬA LỖI TỰ ĐỌC KHI KHÔNG CÓ TAY)
+            # ============================================================
+            
+            # Mặc định là không có kết quả
+            ui_text = "..."
+            smoothed_confidence = 0.0
+            
+            # CHỈ XỬ LÝ KHI PHÁT HIỆN CÓ BÀN TAY
+            if hand_results.multi_hand_landmarks:
+                try:
+                    # Trích xuất đặc trưng (Feature Extraction)
+                    feature = extract_features(mp_hands, face_results, hand_results)
                     
-                    # Cập nhật history nếu có thay đổi
-                    if not prediction_history or prediction_history[-1] != ui_text:
-                        prediction_history.append(ui_text)
-                else:
-                    ui_text = "..." # Không chắc chắn
+                    # Đưa vào model AI
+                    label, confidence = model.predict_with_confidence(feature)
+                    
+                    # Làm mượt kết quả (Smoothing)
+                    smoother.add_prediction(label, confidence)
+                    smoothed_label, smoothed_confidence = smoother.get_smoothed_prediction()
 
-                # Hiển thị Text
-                prediction_placeholder.markdown(f'<div class="big-font">{ui_text}</div>', unsafe_allow_html=True)
-                
-                # Hiển thị Confidence
-                confidence_bar.progress(min(smoothed_confidence, 1.0))
-                confidence_text.text(f"Độ tin cậy: {round(smoothed_confidence * 100, 1)}%")
-                
-                # Hiển thị History
-                history_html = "<ul>" + "".join([f"<li>{item}</li>" for item in prediction_history]) + "</ul>"
-                history_placeholder.markdown(history_html, unsafe_allow_html=True)
+                    # Chỉ hiển thị/đọc nếu độ tin cậy vượt ngưỡng (Threshold)
+                    if smoothed_confidence >= current_threshold:
+                        expression_handler.receive(smoothed_label)
+                        ui_text = expression_handler.get_message()
+                        
+                        # Cập nhật lịch sử
+                        if not prediction_history or prediction_history[-1] != ui_text:
+                            prediction_history.append(ui_text)
+                        
+                        # Đọc giọng nói (TTS)
+                        if tts_enabled and st.session_state.tts:
+                            status_text.text(f"🔊 Đang đọc: {ui_text}")
+                            speech_text = expression_handler.get_speech_message()
+                            st.session_state.tts.speak_if_allowed(speech_text, min_interval=min_interval)
+                    else:
+                        # Có tay nhưng AI chưa chắc chắn
+                        ui_text = "..." 
+                        status_text.text("🤔 Đang phân tích...")
 
-                # Đọc giọng nói
-                if tts_enabled and st.session_state.tts and smoothed_confidence >= CONFIDENCE_THRESHOLD:
-                    speech_text = expression_handler.get_speech_message()
-                    st.session_state.tts.speak_if_allowed(speech_text, min_interval=min_interval)
+                except Exception as e:
+                    print(f"Lỗi dự đoán: {e}")
+                    status_text.text("⚠️ Lỗi xử lý AI")
+            else:
+                # KHÔNG CÓ TAY: Reset trạng thái
+                status_text.text("Sẵn sàng. Hãy đưa tay vào camera.")
+                # Có thể chọn reset bộ làm mượt để lần sau đưa tay vào nhận diện nhanh hơn
+                # smoother.clear() 
 
-            except Exception as e:
-                print(f"Prediction error: {e}")
+            # ============================================================
+            # 4. CẬP NHẬT GIAO DIỆN NGƯỜI DÙNG
+            # ============================================================
+            
+            # Hiển thị kết quả chữ to
+            prediction_placeholder.markdown(f'<div class="big-font">{ui_text}</div>', unsafe_allow_html=True)
+            
+            # Hiển thị thanh độ tin cậy
+            confidence_bar.progress(min(smoothed_confidence, 1.0))
+            confidence_text.text(f"Độ tin cậy: {round(smoothed_confidence * 100, 1)}%")
+            
+            # Hiển thị lịch sử
+            history_html = "<ul>" + "".join([f"<li>{item}</li>" for item in prediction_history]) + "</ul>"
+            history_placeholder.markdown(history_html, unsafe_allow_html=True)
 
-            # Hiển thị hình ảnh lên Web
+            # Hiển thị hình ảnh camera
             video_placeholder.image(image, channels="RGB", use_column_width=True)
 
-    # Giải phóng camera khi thoát vòng lặp
+    # Giải phóng camera khi thoát
     cap.release()
     cv2.destroyAllWindows()
 
 else:
-    # Giao diện khi Camera Tắt
-    st.info("Camera đang tắt. Tích vào ô '📷 Bật Camera' ở thanh bên trái để bắt đầu.")
-    video_placeholder.empty()
+    # Giao diện chờ khi chưa bật camera
+    st.info("👋 Chào mừng! Hãy tích vào ô '📷 Bật Camera' ở thanh bên trái để bắt đầu sử dụng.")
+    video_placeholder.image("https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExbXp4Z3Bpbm94Z3Bpbm94Z3Bpbm94Z3Bpbm94Z3Bpbm94Z3Bpbm94Z3Bpbm94Z3Bpbm94ZCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3o7TKUM3IgJBq2M3QA/giphy.gif", caption="Minh họa ngôn ngữ ký hiệu")
     prediction_placeholder.empty()
     fps_display.empty()
