@@ -15,6 +15,7 @@ class ExpressionHandler:
 
     # Bản đọc cho TTS (không emoji, từ ngữ rõ ràng)
     SPEECH_MAPPING = {
+        "bình_thường": "Ngồi yên",
         "cảm_ơn": "Cảm ơn",
         "xin_chào": "Xin chào",
         "yêu": "Yêu",

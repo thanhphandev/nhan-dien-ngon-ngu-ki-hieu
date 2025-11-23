@@ -248,8 +248,9 @@ if run_camera:
 
                 # Đọc giọng nói
                 if tts_enabled and st.session_state.tts and smoothed_confidence >= CONFIDENCE_THRESHOLD:
-                    speech_text = expression_handler.get_speech_message()
-                    st.session_state.tts.speak_if_allowed(speech_text, min_interval=min_interval)
+                    if smoothed_label != "bình_thường":
+                        speech_text = expression_handler.get_speech_message()
+                        st.session_state.tts.speak_if_allowed(speech_text, min_interval=min_interval)
 
             except Exception as e:
                 print(f"Prediction error: {e}")
